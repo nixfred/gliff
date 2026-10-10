@@ -126,7 +126,7 @@ Panel {
           Layout.fillWidth: true
           spacing: Style.space(10)
           Text {
-            text: String.fromCodePoint(0xF0379)
+            text: String.fromCodePoint(0xF08B2)
             color: panel.accent
             font.family: panel.fontFamily
             font.pixelSize: Style.font.subtitle

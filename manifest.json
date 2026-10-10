@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "nixfred.gliff",
   "name": "Gliff",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "author": "nixfred",
   "license": "MIT",
   "description": "One-click gliff remote desktop from the bar. Lists the machines gliff already knows plus the online Linux nodes on your tailnet; click one to open its Hyprland desktop in a window.",

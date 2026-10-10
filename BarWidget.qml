@@ -176,7 +176,7 @@ BarWidget {
     Text {
       id: glyph
       anchors.centerIn: parent
-      text: String.fromCodePoint(0xF0379)
+      text: String.fromCodePoint(0xF08B2)
       color: root.installed ? root.foreground : Util.alpha(root.foreground, 0.4)
       font.family: root.bar ? root.bar.fontFamily : Style.font.family
       font.pixelSize: Style.font.bodySmall * 1.25
