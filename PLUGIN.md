@@ -9,7 +9,7 @@ Click the monitor icon, click a machine, and its desktop opens in a gliff window
 - **Used before**: every machine gliff has connected to (read from `~/.config/gliff/config.toml`).
 - **Omarchy on your tailnet**: online Linux nodes from `tailscale status` that answer a read-only
   `ssh` check for `/usr/share/omarchy`. The check uses `BatchMode`, so a machine you cannot reach by
-  key is left out instead of prompting. Results are kept until the shell restarts.
+  key is left out instead of prompting. Real answers are kept until the shell restarts; a machine that could not be reached is asked again next time the panel opens.
 - **Mirror screen / Private screen**: mirror shows the remote's focused screen; private adds `--headless`.
 - Type to filter. Enter opens the top match, or whatever you typed (`user@host`) when nothing matches.
   Up/Down moves, Esc closes.

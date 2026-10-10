@@ -103,7 +103,7 @@ BarWidget {
   // Only Omarchy machines belong in the tailnet list, and tailscale cannot say
   // which those are. Ask each online Linux node once, read-only and without
   // prompts: BatchMode never asks for a password, so a machine we cannot reach
-  // by key is simply left out. Answers are kept until the shell restarts.
+  // by key is simply left out. Real answers are kept until the shell restarts; a machine we could not reach is asked again next time.
   property var asked: ({})
   Process {
     id: probe
@@ -111,8 +111,11 @@ BarWidget {
       onRead: function(line) {
         var f = line.split("\t")
         if (f.length < 2) return
+        // "fail" means we could not reach it (offline, no key, timeout): not an
+        // answer, so forget we asked and try again the next time the panel opens.
         var p = root.probed
-        p[f[0]] = f[1] === "omarchy"
+        if (f[1] === "fail" || f[1] === "") delete root.asked[f[0]]
+        else p[f[0]] = f[1] === "omarchy"
         root.probed = p
         root.probing = Math.max(0, root.probing - 1)
         root.applyProbed()
@@ -130,7 +133,7 @@ BarWidget {
     if (todo.length === 0) return
     probing = todo.length
     probe.command = ["sh", "-c",
-      'for t in "$@"; do ( r=$(ssh -o BatchMode=yes -o ConnectTimeout=4 "$t" "test -d /usr/share/omarchy && echo omarchy" 2>/dev/null); printf "%s\\t%s\\n" "$t" "$r" ) & done; wait',
+      'for t in "$@"; do ( r=$(ssh -o BatchMode=yes -o ConnectTimeout=4 "$t" "test -d /usr/share/omarchy && echo omarchy || echo no" 2>/dev/null) || r=fail; printf "%s\\t%s\\n" "$t" "$r" ) & done; wait',
       "gliff-probe"].concat(todo)
     probe.running = true
   }
