@@ -68,12 +68,84 @@ pub struct CaptureConfig {
 
 pub const DEFAULT_RENDER_NODE: &str = "/dev/dri/renderD128";
 
-/// The DRM render node to use: explicit, `GLIFF_RENDER_NODE`, or the default.
+/// The DRM render node to use: explicit, `GLIFF_RENDER_NODE`, the first node
+/// not driven by NVIDIA, or the default.
 pub fn render_node(explicit: Option<&std::path::Path>) -> PathBuf {
     explicit
         .map(std::path::Path::to_path_buf)
         .or_else(|| std::env::var_os("GLIFF_RENDER_NODE").map(PathBuf::from))
+        .or_else(first_non_nvidia_node)
         .unwrap_or_else(|| PathBuf::from(DEFAULT_RENDER_NODE))
+}
+
+/// On a hybrid laptop `renderD128` is often the NVIDIA card, which cannot
+/// allocate the capture buffers (`gbm: allocate ... Invalid argument`) and has no
+/// VA-API encoder, so prefer the integrated GPU's node when there is one.
+fn first_non_nvidia_node() -> Option<PathBuf> {
+    let mut nodes: Vec<(PathBuf, Option<String>)> = std::fs::read_dir("/dev/dri")
+        .ok()?
+        .filter_map(|entry| {
+            let name = entry.ok()?.file_name().into_string().ok()?;
+            name.starts_with("renderD").then(|| {
+                let driver = std::fs::read_link(format!("/sys/class/drm/{name}/device/driver"))
+                    .ok()
+                    .and_then(|link| link.file_name()?.to_str().map(str::to_owned));
+                (PathBuf::from("/dev/dri").join(&name), driver)
+            })
+        })
+        .collect();
+    nodes.sort();
+    pick_non_nvidia(&nodes)
+}
+
+fn pick_non_nvidia(nodes: &[(PathBuf, Option<String>)]) -> Option<PathBuf> {
+    nodes
+        .iter()
+        .find(|(_, driver)| driver.as_deref() != Some("nvidia"))
+        .map(|(node, _)| node.clone())
+}
+
+#[cfg(test)]
+mod render_node_tests {
+    use super::*;
+
+    fn node(n: u32, driver: Option<&str>) -> (PathBuf, Option<String>) {
+        (
+            PathBuf::from(format!("/dev/dri/renderD{n}")),
+            driver.map(str::to_owned),
+        )
+    }
+
+    #[test]
+    fn skips_nvidia_for_the_integrated_gpu() {
+        let nodes = [node(128, Some("nvidia")), node(129, Some("i915"))];
+        assert_eq!(
+            pick_non_nvidia(&nodes),
+            Some(PathBuf::from("/dev/dri/renderD129"))
+        );
+    }
+
+    #[test]
+    fn keeps_the_first_node_when_it_is_not_nvidia() {
+        let nodes = [node(128, Some("amdgpu")), node(129, Some("nvidia"))];
+        assert_eq!(
+            pick_non_nvidia(&nodes),
+            Some(PathBuf::from("/dev/dri/renderD128"))
+        );
+    }
+
+    #[test]
+    fn nvidia_only_falls_back_to_the_default() {
+        assert_eq!(pick_non_nvidia(&[node(128, Some("nvidia"))]), None);
+    }
+
+    #[test]
+    fn an_unknown_driver_counts_as_usable() {
+        assert_eq!(
+            pick_non_nvidia(&[node(130, None)]),
+            Some(PathBuf::from("/dev/dri/renderD130"))
+        );
+    }
 }
 
 impl CaptureConfig {
