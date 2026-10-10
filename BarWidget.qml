@@ -17,6 +17,10 @@ BarWidget {
     return v === undefined || v === null ? fallback : v
   }
   readonly property color foreground: bar ? bar.foreground : Color.foreground
+  // Off by default: fullscreen grabs the keyboard shortcuts, which makes the
+  // window hard to close, and going fullscreen before the stream connects left a
+  // black screen. Shift+Esc releases the grab.
+  readonly property bool mirrorFullscreen: String(setting("mirrorFullscreen", false)) === "true"
   readonly property bool showTailnet: String(setting("showTailnet", true)) !== "false"
   readonly property string sshUser: String(setting("defaultUser", "")) !== "" ? String(setting("defaultUser", "")) : Quickshell.env("USER")
 
@@ -153,14 +157,14 @@ BarWidget {
 
   // ---- actions ------------------------------------------------------------
 
-  // Mirror windows open fullscreen. A mirrored screen keeps its own aspect
-  // ratio, and a wide remote screen (gus is 5120x2160) in an ordinary tile is a
-  // thin strip with black above and below. The script starts gliff itself so it
-  // knows the pid, waits for that pid's window, then asks Hyprland to fullscreen
-  // it. Fullscreen is a toggle, so it only runs once per launch. Private screens
+  // Optional (mirrorFullscreen): open Mirror windows fullscreen. A mirrored screen
+  // keeps its own aspect ratio, and a wide remote screen (gus is 5120x2160) in an
+  // ordinary tile is a thin strip with black above and below. The script starts
+  // gliff itself so it knows the pid, waits for the stream to come up, finds that
+  // pid's window, then asks Hyprland to fullscreen it. Fullscreen is a toggle, so it only runs once per launch. Private screens
   // already follow the window and are left alone.
   readonly property string launchMirror: 'gliff "$@" & p=$!; '
-    + 'for i in $(seq 1 40); do '
+    + 'sleep 6; for i in $(seq 1 40); do '
     + 'a=$(hyprctl clients -j 2>/dev/null | jq -r --argjson p "$p" \'[.[]|select(.pid==$p)][0].address // empty\'); '
     + 'if [ -n "$a" ]; then hyprctl dispatch "hl.dsp.window.fullscreen({ mode = \\"fullscreen\\", window = \\"address:$a\\" })" >/dev/null 2>&1; break; fi; '
     + 'sleep 0.5; done; wait $p'
@@ -168,7 +172,7 @@ BarWidget {
   // Opens gliff on `target` ("user@host"). Empty target opens the bare app,
   // which shows its own tabs or an address bar.
   function connect(target) {
-    if (target !== "" && mode === "mirror") {
+    if (target !== "" && mode === "mirror" && mirrorFullscreen) {
       Quickshell.execDetached(["setsid", "sh", "-c", launchMirror, "gliff-launch", target])
     } else {
       var args = ["gliff"]

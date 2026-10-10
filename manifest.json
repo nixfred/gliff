@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "nixfred.gliff",
   "name": "Gliff",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "author": "nixfred",
   "license": "MIT",
   "description": "One-click gliff remote desktop from the bar. Lists the machines gliff already knows plus the online Linux nodes on your tailnet; click one to open its Hyprland desktop in a window.",
@@ -17,7 +17,7 @@
     "aliases": ["gliff", "remote", "desktop", "remote desktop", "ssh", "hyprland"],
     "allowMultiple": false,
     "defaultSection": "right",
-    "defaults": { "defaultUser": "", "defaultMode": "mirror", "showTailnet": true },
+    "defaults": { "defaultUser": "", "defaultMode": "mirror", "showTailnet": true, "mirrorFullscreen": false },
     "schema": [
       { "key": "defaultUser", "type": "string", "label": "ssh user for tailnet machines",
         "description": "Used to build user@host for machines found on your tailnet. Empty means your own login name.",
@@ -26,6 +26,9 @@
         "options": ["mirror", "private"],
         "description": "mirror shows the remote's focused screen. private creates a screen sized to the gliff window.",
         "defaultValue": "mirror" },
+      { "key": "mirrorFullscreen", "type": "boolean", "label": "Open Mirror windows fullscreen",
+        "description": "Experimental. Fills the screen so a wide remote desktop is readable, but fullscreen captures your keyboard shortcuts: press Shift+Esc to release them, then close the window.",
+        "defaultValue": false },
       { "key": "showTailnet", "type": "boolean", "label": "List online tailnet machines",
         "description": "Adds the online Linux nodes from tailscale status. Machines gliff has connected to before are always listed.",
         "defaultValue": true }
