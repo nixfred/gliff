@@ -72,6 +72,20 @@ struct Cli {
     /// click it again.
     #[arg(long, default_value = "shift+escape")]
     release_hotkey: String,
+    /// Open in pan view: the remote screen at 1:1 (not shrunk to fit the
+    /// window), sliding past as the pointer moves, so a large remote screen is
+    /// readable in a small window. Toggle it with the pan hotkey.
+    #[arg(long)]
+    pan: bool,
+    /// Pan view zoom when it starts, in device pixels per remote pixel: 1,
+    /// 1.25, 1.5, 2 or 3. The zoom hotkeys step through the same values.
+    #[arg(long, default_value_t = 1.0)]
+    pan_zoom: f64,
+    /// Hotkey that toggles pan view (same forms as --release-hotkey). In pan
+    /// view, <chord>-equal and <chord>-minus zoom in and out: with the default,
+    /// ctrl+alt+equal and ctrl+alt+minus.
+    #[arg(long, default_value = "ctrl+alt+z")]
+    pan_hotkey: String,
     /// Video pipeline: `gpu` (Vulkan compute + VA-API, falling back to the
     /// CPU when unavailable) or `cpu` (force OpenH264 on the CPU). Overrides
     /// the GLIFF_VIDEO environment variable.
@@ -116,6 +130,8 @@ struct App {
     /// Evdev codes currently held on the remote, so they can all be released
     /// when the keyboard is handed back to the local compositor.
     pressed_keys: RefCell<BTreeSet<u32>>,
+    /// The zoom pan view uses, remembered across toggles.
+    pan_zoom: Cell<f64>,
     /// Set by the release hotkey: the pointer is over the picture but the
     /// keyboard stays local until the pointer leaves, or the picture is
     /// clicked.
@@ -387,6 +403,7 @@ fn build_ui(app: &adw::Application, cli: &Cli) {
         sessions: RefCell::new(Vec::new()),
         active: RefCell::new(None),
         view_size: Cell::new((0, 0)),
+        pan_zoom: Cell::new(1.0),
         pressed_keys: RefCell::new(BTreeSet::new()),
         released: Cell::new(false),
         config_path: Config::default_path(),
@@ -398,6 +415,20 @@ fn build_ui(app: &adw::Application, cli: &Cli) {
         tracing::warn!(error = %e, "invalid --release-hotkey; shortcut release disabled");
         ReleaseHotkey::None
     });
+    if cli.pan {
+        // Snap a typed zoom to the nearest step the hotkeys also use.
+        let zoom = paintable::PAN_ZOOMS
+            .iter()
+            .copied()
+            .min_by(|a, b| {
+                (a - cli.pan_zoom)
+                    .abs()
+                    .total_cmp(&(b - cli.pan_zoom).abs())
+            })
+            .unwrap_or(1.0);
+        ui.pan_zoom.set(zoom);
+        ui.frame.set_pan(Some(zoom));
+    }
     install_input_handlers(&ui, &video, &window, hotkey);
     install_resize_handler(&ui);
     install_address_bar(&ui, &connect_btn);
@@ -1310,7 +1341,11 @@ fn to_remote(ui: &App, x: f64, y: f64) -> (f64, f64) {
     }
     let device = ui.video.scale_factor().max(1);
     let (aw, ah) = (ui.video.width() as f64, ui.video.height() as f64);
-    let Some(l) = paintable::layout((vw, vh), device, aw, ah) else {
+    let l = match ui.frame.pan() {
+        Some(zoom) => paintable::pan_layout((vw, vh), device, aw, ah, zoom, x, y),
+        None => paintable::layout((vw, vh), device, aw, ah),
+    };
+    let Some(l) = l else {
         return (0.0, 0.0);
     };
     let vx = (x - l.x) / l.factor * device as f64;
@@ -1512,6 +1547,92 @@ fn release_pressed_keys(ui: &App) {
     }
 }
 
+/// What a pan hotkey asks for.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum PanAction {
+    Toggle,
+    ZoomIn,
+    ZoomOut,
+}
+
+/// The pan view hotkeys: a chord toggles, and the same modifiers with
+/// `equal` / `minus` zoom. A key that is not a chord (a double-tap, or
+/// `none`) only toggles.
+struct PanKeys {
+    toggle: ReleaseHotkey,
+    zoom_in: ReleaseHotkey,
+    zoom_out: ReleaseHotkey,
+    last_tap: RefCell<Option<Instant>>,
+}
+
+impl PanKeys {
+    fn parse(spec: &str) -> Self {
+        let toggle = ReleaseHotkey::parse(spec).unwrap_or_else(|e| {
+            tracing::warn!(error = %e, "invalid --pan-hotkey; pan hotkeys disabled");
+            ReleaseHotkey::None
+        });
+        let (zoom_in, zoom_out) = match &toggle {
+            ReleaseHotkey::Chord { mods, .. } => (
+                ReleaseHotkey::Chord {
+                    mods: *mods,
+                    keyval: gdk::Key::equal,
+                },
+                ReleaseHotkey::Chord {
+                    mods: *mods,
+                    keyval: gdk::Key::minus,
+                },
+            ),
+            _ => (ReleaseHotkey::None, ReleaseHotkey::None),
+        };
+        Self {
+            toggle,
+            zoom_in,
+            zoom_out,
+            last_tap: RefCell::new(None),
+        }
+    }
+
+    fn action(&self, keyval: gdk::Key, state: gdk::ModifierType) -> Option<PanAction> {
+        if self.toggle.matches(keyval, state, &self.last_tap) {
+            Some(PanAction::Toggle)
+        } else if self.zoom_in.matches(keyval, state, &self.last_tap) {
+            Some(PanAction::ZoomIn)
+        } else if self.zoom_out.matches(keyval, state, &self.last_tap) {
+            Some(PanAction::ZoomOut)
+        } else {
+            None
+        }
+    }
+}
+
+/// Switch pan view on or off, or step its zoom, and say what happened. The
+/// decoder's zoom is re-asked straight away because pan view keeps it at 1.
+fn apply_pan_action(ui: &Rc<App>, action: PanAction) {
+    let now = ui.frame.pan();
+    let next = match (action, now) {
+        (PanAction::Toggle, Some(_)) => None,
+        (PanAction::Toggle, None) => Some(ui.pan_zoom.get()),
+        (PanAction::ZoomIn, Some(z)) => Some(paintable::step_pan_zoom(z, 1)),
+        (PanAction::ZoomOut, Some(z)) => Some(paintable::step_pan_zoom(z, -1)),
+        // Zooming only means something while panning.
+        (_, None) => None,
+    };
+    if let Some(z) = next {
+        ui.pan_zoom.set(z);
+    }
+    ui.frame.set_pan(next);
+    request_zoom(ui);
+    let text = match next {
+        Some(z) => format!(
+            "Pan view {z:.2}x — move the pointer to slide the screen; {} to fit",
+            ui.cli.pan_hotkey
+        ),
+        None if action == PanAction::Toggle => "Fit view — the whole screen in the window".into(),
+        None => return,
+    };
+    show_hint(ui, &text);
+}
+
 /// Record a local key event. Returns false when it should not be forwarded:
 /// an auto-repeat press (the remote compositor repeats on its own) or a
 /// release of a key whose press was never sent.
@@ -1539,15 +1660,21 @@ fn install_input_handlers(
     let key = gtk::EventControllerKey::new();
     key.set_propagation_phase(gtk::PropagationPhase::Capture);
     let last_tap: Rc<RefCell<Option<Instant>>> = Rc::new(RefCell::new(None));
+    let pan_keys = Rc::new(PanKeys::parse(&ui.cli.pan_hotkey));
     {
         let ui = ui.clone();
         let window = window.clone();
         let hotkey = hotkey.clone();
+        let pan_keys = pan_keys.clone();
         let last_tap = last_tap.clone();
         key.connect_key_pressed(move |_, keyval, keycode, state| {
             if hotkey.matches(keyval, state, &last_tap) {
                 release_pressed_keys(&ui);
                 release_capture(&ui, &window);
+                return glib::Propagation::Stop;
+            }
+            if let Some(action) = pan_keys.action(keyval, state) {
+                apply_pan_action(&ui, action);
                 return glib::Propagation::Stop;
             }
             let code = keycode.saturating_sub(8);
@@ -1589,6 +1716,7 @@ fn install_input_handlers(
     {
         let ui = ui.clone();
         motion.connect_motion(move |_, x, y| {
+            ui.frame.set_pointer(x, y);
             let (rx, ry) = to_remote(&ui, x, y);
             send(&ui, ClientMsg::PointerMotion { x: rx, y: ry });
         });
@@ -1859,7 +1987,12 @@ fn request_zoom(ui: &App) {
     }
     let device = ui.video.scale_factor().max(1);
     let (aw, ah) = (ui.video.width() as f64, ui.video.height() as f64);
-    let want = paintable::layout(view, device, aw, ah).map_or(1, |l| l.zoom());
+    // Pan view scales the whole frame itself, so the decoder stays at 1.
+    let want = if ui.frame.pan().is_some() {
+        1
+    } else {
+        paintable::layout(view, device, aw, ah).map_or(1, |l| l.zoom())
+    };
     if want == s.zoom.get() {
         return;
     }

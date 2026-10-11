@@ -73,6 +73,14 @@ A mirrored screen keeps its own size and is fitted into the window. A private
 screen follows the window as you resize it, and is removed when you
 disconnect.
 
+Pan view shows the remote screen at 1:1 instead of shrinking it to fit, which
+keeps a large remote screen readable in a small window. The picture slides
+past as you move the pointer: the pointer's place across the window is its
+place across the screen, so the cursor and what it points at never drift
+apart. Start in it with `--pan` (and `--pan-zoom 1.25|1.5|2|3`), or toggle it
+with `ctrl+alt+z` (`--pan-hotkey`); `ctrl+alt+=` and `ctrl+alt+-` zoom while
+panning.
+
 Every machine you connect to gets a tab in the title bar. Click a tab to
 connect to that machine, or to switch to it: each connection keeps running
 while you look at another, so switching is instant. Hover a tab for its
