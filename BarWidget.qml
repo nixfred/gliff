@@ -21,6 +21,9 @@ BarWidget {
   // window hard to close, and going fullscreen before the stream connects left a
   // black screen. Shift+Esc releases the grab.
   readonly property bool mirrorFullscreen: String(setting("mirrorFullscreen", false)) === "true"
+  // Open Mirror windows in gliff's pan view: the remote at 1:1, sliding with the
+  // pointer, so a large remote screen is readable in a small window.
+  readonly property bool mirrorPan: String(setting("mirrorPan", true)) !== "false"
   readonly property bool showTailnet: String(setting("showTailnet", true)) !== "false"
   readonly property string sshUser: String(setting("defaultUser", "")) !== "" ? String(setting("defaultUser", "")) : Quickshell.env("USER")
 
@@ -173,10 +176,13 @@ BarWidget {
   // which shows its own tabs or an address bar.
   function connect(target) {
     if (target !== "" && mode === "mirror" && mirrorFullscreen) {
-      Quickshell.execDetached(["setsid", "sh", "-c", launchMirror, "gliff-launch", target])
+      var launch = ["setsid", "sh", "-c", launchMirror, "gliff-launch"]
+      if (mirrorPan) launch.push("--pan")
+      Quickshell.execDetached(launch.concat([target]))
     } else {
       var args = ["gliff"]
       if (mode === "private" && target !== "") args.push("--headless")
+      else if (mode === "mirror" && mirrorPan && target !== "") args.push("--pan")
       if (target !== "") args.push(target)
       Quickshell.execDetached(args)
     }
