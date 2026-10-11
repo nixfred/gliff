@@ -1622,6 +1622,7 @@ fn apply_pan_action(ui: &Rc<App>, action: PanAction) {
     }
     ui.frame.set_pan(next);
     request_zoom(ui);
+    request_resize(ui);
     let text = match next {
         Some(z) => format!(
             "Pan view {z:.2}x — move the pointer to slide the screen; {} to fit",
@@ -2003,6 +2004,22 @@ fn request_zoom(ui: &App) {
     }
 }
 
+/// The size to ask the server to fit the remote screen into. Normally the
+/// window; in pan view the window is only a porthole onto the screen, so ask
+/// for as much as the server will give (it caps this at its encoder maximum)
+/// and the picture arrives sharp enough to look at 1:1. A private headless
+/// screen still follows the window, because its size is the window's.
+fn wanted_extent(ui: &App) -> (u32, u32) {
+    if ui.frame.pan().is_some() && !ui.cli.headless {
+        PAN_EXTENT
+    } else {
+        ui.view_size.get()
+    }
+}
+
+/// What pan view asks the server for; the server clamps it to its encoder maximum.
+const PAN_EXTENT: (u32, u32) = (4096, 4096);
+
 /// Send a Resize if the server's view does not already match the window.
 /// The gate compares the server's VIEW, not the stream: a stream the server
 /// chose to send at reduced resolution is not a size mismatch, and asking
@@ -2011,7 +2028,7 @@ fn request_resize(ui: &App) {
     let Some(s) = active(ui) else {
         return;
     };
-    let size = ui.view_size.get();
+    let size = wanted_extent(ui);
     if size.0 < 64 || size.1 < 64 || size == s.server_view.get() || size == s.resize_requested.get()
     {
         return;
